@@ -1,0 +1,64 @@
+# Local test environment. Start with ./up.sh, not with `docker compose up` directly:
+# sql/setup.sql can only run after Nextcloud has installed itself.
+name: contentsearch-dev
+
+services:
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?see .env.example}
+      NC_DB_PASSWORD: ${NC_DB_PASSWORD:?see .env.example}
+    volumes:
+      - db:/var/lib/postgresql
+      - ./initdb.sh:/docker-entrypoint-initdb.d/initdb.sh:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 2s
+      retries: 30
+
+  app:
+    image: nextcloud:35-apache
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${NC_PORT:-8089}:80"
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_DB: nextcloud
+      POSTGRES_USER: nextcloud
+      POSTGRES_PASSWORD: ${NC_DB_PASSWORD}
+      NEXTCLOUD_ADMIN_USER: admin
+      NEXTCLOUD_ADMIN_PASSWORD: ${NC_ADMIN_PASSWORD:?see .env.example}
+      NEXTCLOUD_TRUSTED_DOMAINS: localhost
+    volumes:
+      - html:/var/www/html
+      - data:/var/www/html/data
+      - ../app:/var/www/html/custom_apps/contentsearch:ro
+
+  indexer:
+    build: ../indexer
+    image: contentsearch-indexer:dev
+    restart: unless-stopped
+    profiles: [indexer]
+    mem_limit: 512m
+    memswap_limit: 512m
+    volumes:
+      - data:/data:ro
+    tmpfs:
+      - /tmp:size=256m
+    environment:
+      PGHOST: db
+      PGDATABASE: nextcloud
+      PGUSER: contentsearch_indexer
+      PGPASSWORD: ${INDEXER_DB_PASSWORD:?see .env.example}
+      BATCH: "200"
+      INTERVAL: ${INTERVAL:-15}
+      OCR: ${OCR:-0}
+
+volumes:
+  db:
+  html:
+  data:

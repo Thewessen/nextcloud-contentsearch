@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<info xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:noNamespaceSchemaLocation="https://apps.nextcloud.com/schema/apps/info.xsd">
+    <id>contentsearch</id>
+    <name>Content search</name>
+    <summary>Zoek in de inhoud van bestanden via PostgreSQL full-text search</summary>
+    <description>Unified Search-provider op een tsvector-index die een losse indexer bijhoudt.</description>
+    <version>0.1.0</version>
+    <licence>agpl</licence>
+    <author>Samuel Thewessen</author>
+    <namespace>ContentSearch</namespace>
+    <category>search</category>
+    <dependencies>
+        <database>pgsql</database>
+        <nextcloud min-version="35" max-version="35"/>
+    </dependencies>
+</info>
