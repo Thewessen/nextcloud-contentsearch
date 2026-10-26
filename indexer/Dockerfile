@@ -2,7 +2,7 @@ FROM debian:trixie-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       python3 python3-psycopg poppler-utils catdoc \
-      ocrmypdf tesseract-ocr-nld tesseract-ocr-eng \
+      tesseract-ocr tesseract-ocr-nld tesseract-ocr-eng \
  && rm -rf /var/lib/apt/lists/*
 COPY indexer.py /usr/local/bin/indexer.py
 ENV PYTHONUNBUFFERED=1 OMP_THREAD_LIMIT=1

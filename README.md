@@ -153,7 +153,7 @@ sudo rsync -a --delete --chown=33:33 "$SRC/app/" "$APPS/$APP_ID/"
 docker exec -u www-data nextcloud_app php occ app:enable $APP_ID
 ```
 
-Verwacht resultaat: `contentsearch 0.1.0 enabled`. De cron-container gebruikt hetzelfde volume en ziet de app daardoor automatisch.
+Verwacht resultaat: `contentsearch 0.1.2 enabled`. De cron-container gebruikt hetzelfde volume en ziet de app daardoor automatisch.
 
 ### 5. Testen
 

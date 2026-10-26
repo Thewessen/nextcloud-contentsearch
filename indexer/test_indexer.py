@@ -7,10 +7,13 @@ Set FIXTURES to a directory with the files from dev/fixtures/generate.sh
 to also test real LibreOffice output, including .doc.
 """
 import os
+import re
+import struct
 import subprocess
 import tempfile
 import unittest
 import zipfile
+import zlib
 from unittest import mock
 
 import indexer
@@ -25,21 +28,8 @@ ODP = "application/vnd.oasis.opendocument.presentation"
 FILLER = "Deze zin maakt de tekst langer dan honderd tekens, zodat het geen scan is. " * 2
 
 
-def text_pdf(path, lines, size=12):
-    """Write a minimal one-page PDF with Helvetica text."""
-    ops = [f"BT /F1 {size} Tf {size * 1.4} TL 40 800 Td"]
-    for line in lines:
-        ops.append("(%s) Tj T*" % line.replace("\\", r"\\").replace("(", r"\(").replace(")", r"\)"))
-    ops.append("ET")
-    stream = "\n".join(ops).encode("latin-1")
-    objs = [
-        b"<< /Type /Catalog /Pages 2 0 R >>",
-        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] "
-        b"/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
-        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-        b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream",
-    ]
+def write_pdf(path, objs):
+    """Write the objects as a PDF; object 1 is the catalog."""
     out = bytearray(b"%PDF-1.4\n")
     offsets = []
     for i, obj in enumerate(objs, 1):
@@ -53,16 +43,48 @@ def text_pdf(path, lines, size=12):
         f.write(out)
 
 
-def scan_pdf(path, lines):
-    """Write an image-only PDF: render a text PDF and wrap the bitmap."""
-    import img2pdf  # ships with ocrmypdf
+def stream(data, attrs=b""):
+    return b"<< %s /Length %d >>\nstream\n" % (attrs, len(data)) + data + b"\nendstream"
+
+
+def text_pdf(path, lines, size=12):
+    """Write a minimal one-page PDF with Helvetica text."""
+    ops = [f"BT /F1 {size} Tf {size * 1.4} TL 40 800 Td"]
+    for line in lines:
+        ops.append("(%s) Tj T*" % line.replace("\\", r"\\").replace("(", r"\(").replace(")", r"\)"))
+    ops.append("ET")
+    write_pdf(path, [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] "
+        b"/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        stream("\n".join(ops).encode("latin-1")),
+    ])
+
+
+def scan_pdf(path, lines, dpi=200, pages=1):
+    """Write an image-only PDF: render a text PDF and embed the bitmap on every page."""
     with tempfile.TemporaryDirectory() as tmp:
         src = os.path.join(tmp, "src.pdf")
         text_pdf(src, lines, size=28)
-        subprocess.run(["pdftoppm", "-r", "200", "-gray", "-png", "-singlefile",
-                        src, os.path.join(tmp, "page")], check=True, stderr=subprocess.DEVNULL)
-        with open(path, "wb") as f:
-            f.write(img2pdf.convert(os.path.join(tmp, "page.png")))
+        pgm = subprocess.run(["pdftoppm", "-r", str(dpi), "-gray", "-singlefile", src],
+                             capture_output=True, check=True).stdout
+    # Binary PGM: "P5 <width> <height> 255", one whitespace byte, then the pixels
+    header = re.match(rb"P5\s+(\d+)\s+(\d+)\s+255\s", pgm)
+    w, h, pixels = int(header[1]), int(header[2]), pgm[header.end():]
+    image = stream(zlib.compress(pixels), b"/Type /XObject /Subtype /Image /Width %d /Height %d "
+                   b"/ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode" % (w, h))
+    draw = stream(b"q 595 0 0 842 0 0 cm /Im1 Do Q")
+    kids = b" ".join(b"%d 0 R" % (5 + i) for i in range(pages))
+    write_pdf(path, [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [%s] /Count %d >>" % (kids, pages),
+        image,
+        draw,
+        *[b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] "
+          b"/Resources << /XObject << /Im1 3 0 R >> >> /Contents 4 0 R >>"] * pages,
+    ])
 
 
 def zip_file(path, parts):
@@ -129,6 +151,57 @@ class ExtractTest(unittest.TestCase):
         text_pdf(p, ["een"])
         self.assertEqual(indexer.pages(p), "1")
         self.assertEqual(indexer.pages(self.path("missing.pdf")), "?")
+
+    def test_ocr_every_page_capped_at_max_px(self):
+        p = self.path("scan.pdf")
+        scan_pdf(p, ["Het woord is zeppelin."], dpi=600, pages=2)  # 4961 x 7016 px
+        sizes, real_run = [], indexer.run
+
+        def spy(cmd, **kw):
+            out = real_run(cmd, **kw)
+            if cmd[0] == "tesseract":
+                with open(cmd[1], "rb") as f:
+                    sizes.append(struct.unpack(">II", f.read(24)[16:24]))  # PNG IHDR width, height
+            return out
+
+        with mock.patch.object(indexer, "run", spy):
+            text = indexer.ocr(p)
+        self.assertEqual(len(sizes), 2)
+        self.assertTrue(all(max(s) == indexer.MAX_PX for s in sizes), sizes)
+        self.assertEqual(text.count("zeppelin"), 2)
+
+    def test_ocr_failure_leaves_no_files(self):
+        p = self.path("scan.pdf")
+        scan_pdf(p, ["zeppelin"])
+        real_run = indexer.run
+
+        def failing_tesseract(cmd, **kw):
+            if cmd[0] == "tesseract":
+                raise RuntimeError("tesseract exit status 1: boom")
+            return real_run(cmd, **kw)
+
+        tmp = self.path("tmp")
+        os.mkdir(tmp)
+        with mock.patch.object(tempfile, "tempdir", tmp), \
+                mock.patch.object(indexer, "run", failing_tesseract):
+            with self.assertRaises(RuntimeError):
+                indexer.ocr(p)
+        self.assertEqual(os.listdir(tmp), [])
+
+    def test_ocr_without_page_count_raises(self):
+        p = self.path("broken.pdf")
+        with open(p, "wb") as f:
+            f.write(b"not a pdf")
+        with self.assertRaises(ValueError):
+            indexer.ocr(p)
+
+    def test_clean_tmp(self):
+        tmp = self.path("tmp")
+        os.makedirs(os.path.join(tmp, "ocrmypdf.io.whh0w6nr", "sub"))
+        open(os.path.join(tmp, "stray.png"), "w").close()
+        with mock.patch.object(tempfile, "tempdir", tmp):
+            indexer.clean_tmp()
+        self.assertEqual(os.listdir(tmp), [])
 
     def test_docx_joins_runs_and_splits_paragraphs(self):
         p = self.path("a.docx")
