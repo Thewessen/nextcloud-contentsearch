@@ -246,6 +246,11 @@ class FixturesTest(unittest.TestCase):
         "fixture-odp.odp": (ODP, "dromedaris"),
         "fixture-md.md": ("text/markdown", "kolibrie"),
         "fixture-txt.txt": ("text/plain", "narwal"),
+        "fixture-renamed.doc": ("application/msword", "kameleon"),
+    }
+    STATUSES = {
+        "fixture-empty.txt": ("text/plain", "empty"),
+        "fixture-encrypted.xlsx": (XLSX, "encrypted"),
     }
 
     def test_fixtures(self):
@@ -254,6 +259,12 @@ class FixturesTest(unittest.TestCase):
                 text, status = indexer.extract(os.path.join(os.environ["FIXTURES"], name), mime)
                 self.assertEqual(status, "ok")
                 self.assertIn(word, text)
+
+    def test_fixture_statuses(self):
+        for name, (mime, status) in self.STATUSES.items():
+            with self.subTest(name):
+                path = os.path.join(os.environ["FIXTURES"], name)
+                self.assertEqual(indexer.extract(path, mime), (None, status))
 
     def test_scan_fixture(self):
         path = os.path.join(os.environ["FIXTURES"], "fixture-scan.pdf")

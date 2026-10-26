@@ -261,7 +261,7 @@ dev/e2e.sh
 
 `dev/up.sh` maakt bij de eerste keer `dev/.env` aan, met willekeurige wachtwoorden (zie `dev/.env.example`). Daarna start het de stappen in dezelfde volgorde als de installatie: eerst PostgreSQL en Nextcloud, en als Nextcloud geïnstalleerd is `sql/setup.sql`, `occ app:enable` en de indexer. De map `app/` is read-only gekoppeld op `custom_apps/contentsearch`, dus een PHP-wijziging werkt meteen. In de testomgeving draait de indexer elke 15 seconden.
 
-`dev/e2e.sh` uploadt de testbestanden via WebDAV als alice. Daarna controleert het de status in `oc_contentsearch`, de zoekresultaten per uniek woord, de rechten van bob voor en na delen, herindexering na een wijziging, verwijdering, en OCR met het geheugengebruik.
+`dev/e2e.sh` uploadt de testbestanden via WebDAV als alice. Daarna controleert het de status in `oc_contentsearch`, de zoekresultaten per uniek woord, de rechten van bob voor en na delen, herindexering na een wijziging, verwijdering, OCR met het geheugengebruik, `OCR_EXCLUDE`, en de logregels. Ook een lege, een versleutelde en een als .doc opgeslagen docx zitten erbij.
 
 Opruimen: `cd dev && docker compose --profile indexer down -v`.
 

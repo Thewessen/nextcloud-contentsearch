@@ -16,6 +16,7 @@ declare -A WORDS=(
 	[pdf]=flamingo [scan]=zeppelin [docx]=kangoeroe [doc]=pelikaan
 	[pptx]=giraffe [xlsx]=octopus [odt]=walrus [ods]=pinguin
 	[odp]=dromedaris [md]=kolibrie [txt]=narwal [scanmulti]=albatros
+	[renamed]=kameleon [encrypted]=salamander
 )
 
 work=$(mktemp -d)
@@ -35,19 +36,27 @@ soffice_to() { # <target-format> <source> [infilter]
 		--convert-to "$1" --outdir "$work" "$2" >/dev/null 2>&1
 }
 
-for f in pdf docx doc odt; do
+for f in pdf docx doc odt renamed; do
 	body "$f" "${WORDS[$f]}" >"$work/$f.txt"
 done
 soffice_to pdf "$work/pdf.txt"
 soffice_to docx "$work/docx.txt"
 soffice_to 'doc:MS Word 97' "$work/doc.txt"
 soffice_to odt "$work/odt.txt"
+# A .docx saved under the name .doc
+soffice_to docx "$work/renamed.txt"
+mv "$work/renamed.docx" "$work/renamed.doc"
 
 for f in xlsx ods; do
 	printf 'formaat,woord\n%s,%s\n' "$f" "${WORDS[$f]}" >"$work/$f.csv"
 done
 soffice_to xlsx "$work/xlsx.csv"
 soffice_to ods "$work/ods.csv"
+# Password-protected xlsx: an OLE2 container instead of a zip file
+printf 'formaat,woord\nencrypted,%s\n' "${WORDS[encrypted]}" >"$work/encrypted.csv"
+soffice_to xlsx "$work/encrypted.csv"
+msoffcrypto-tool -e -p geheim "$work/encrypted.xlsx" "$work/encrypted-pw.xlsx"
+mv "$work/encrypted-pw.xlsx" "$work/encrypted.xlsx"
 
 # Presentations: import a text PDF into Impress
 for f in pptx odp; do
@@ -82,4 +91,7 @@ for f in pdf docx doc odt xlsx ods pptx odp md txt; do
 done
 cp "$work/scan.pdf" out/fixture-scan.pdf
 cp "$work/scanmulti.pdf" out/fixture-scan-multi.pdf
+cp "$work/renamed.doc" out/fixture-renamed.doc
+cp "$work/encrypted.xlsx" out/fixture-encrypted.xlsx
+: >out/fixture-empty.txt
 ls -l out

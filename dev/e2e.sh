@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end check against the dev environment (run ./up.sh and fixtures/generate.sh first).
 # Uploads the fixtures as alice, then checks indexing, search, permissions, sharing,
-# re-indexing, deletion and OCR. Leaves the indexer running with OCR=0.
+# re-indexing, deletion, OCR, OCR_EXCLUDE and the log lines. Leaves the indexer running with OCR=0.
 set -euo pipefail
 cd "$(dirname "$0")"
 set -a; . ./.env; set +a
@@ -44,7 +44,7 @@ for e in d["entries"]:
 }
 
 indexer_up() { # <OCR value>
-	OCR=$1 docker compose --profile indexer up -d indexer >/dev/null 2>&1
+	OCR=$1 OCR_EXCLUDE="$DIR/Sheetmusic" docker compose --profile indexer up -d indexer >/dev/null 2>&1
 }
 
 echo "== upload"
@@ -54,24 +54,36 @@ dav -X MKCOL "$NC/remote.php/dav/files/alice/$DIR" >/dev/null
 for f in fixtures/out/*; do
 	dav -T "$f" "$NC/remote.php/dav/files/alice/$DIR/$(basename "$f")" >/dev/null
 done
-n=$(ls fixtures/out | wc -l | tr -d ' ')
+# The same scan in a folder that is excluded from OCR
+dav -X MKCOL "$NC/remote.php/dav/files/alice/$DIR/Sheetmusic" >/dev/null
+dav -T fixtures/out/fixture-scan.pdf "$NC/remote.php/dav/files/alice/$DIR/Sheetmusic/sheet-scan.pdf" >/dev/null
+n=$(($(ls fixtures/out | wc -l) + 1))
 ok "$n files uploaded to alice/$DIR"
 
 echo "== index (OCR=0)"
 wait_for "all fixtures indexed" '[ "$(rows | wc -l | tr -d " ")" = "$n" ]' && rows | cut -d'|' -f1,2 | sed 's/^/        /'
 while IFS='|' read -r name status _; do
 	case "$name" in
-	fixture-scan*) [ "$status" = needs_ocr ] && ok "$name needs_ocr" || fail "$name is $status" ;;
-	*) [ "$status" = ok ] || fail "$name is $status" ;;
+	fixture-scan*) want=needs_ocr ;;
+	sheet-scan.pdf) want=ocr_excluded ;;
+	fixture-empty.txt) want=empty ;;
+	fixture-encrypted.xlsx) want=encrypted ;;
+	*) want=ok ;;
 	esac
+	if [ "$status" != "$want" ]; then fail "$name is $status, expected $want"
+	elif [ "$want" != ok ]; then ok "$name $want"; fi
 done < <(rows)
+logs() { docker compose logs --no-log-prefix indexer; }
+logs | grep -E "^ok [0-9]+ files/$DIR/fixture-pdf\.pdf \([0-9.]+ s\)$" >/dev/null &&
+	ok "log: $(logs | grep "fixture-pdf.pdf" | tail -1)" || fail "no log line for fixture-pdf.pdf"
 
 echo "== search as alice"
 for pair in pdf:flamingo docx:kangoeroe doc:pelikaan pptx:giraffe xlsx:octopus odt:walrus \
-	ods:pinguin odp:dromedaris md:kolibrie txt:narwal; do
-	ext=${pair%%:*} word=${pair#*:}
+	ods:pinguin odp:dromedaris md:kolibrie txt:narwal renamed.doc:kameleon; do
+	file=${pair%%:*} word=${pair#*:}
+	[[ $file == *.* ]] || file=$file.$file
 	hits=$(search alice "$word")
-	if [ "$(echo "$hits" | cut -f1)" = "fixture-$ext.$ext" ] && echo "$hits" | grep -q "«"; then
+	if [ "$(echo "$hits" | cut -f1)" = "fixture-$file" ] && echo "$hits" | grep -q "«"; then
 		ok "$word -> $hits"
 	else
 		fail "$word -> '$hits'"
@@ -121,6 +133,10 @@ for word in zeppelin albatros; do
 	hits=$(search alice "$word")
 	echo "$hits" | grep -q '^fixture-scan' && ok "$word -> $hits" || fail "$word -> '$hits'"
 done
+status=$(rows | grep '^sheet-scan.pdf|' | cut -d'|' -f2)
+[ "$status" = ocr_excluded ] && ok "sheet-scan.pdf still ocr_excluded" || fail "sheet-scan.pdf is $status"
+logs | grep -E "^ocr [0-9]+ files/$DIR/fixture-scan-multi\.pdf \(9 p, [0-9.]+ s\)$" >/dev/null &&
+	ok "log: $(logs | grep "^ocr .*fixture-scan-multi.pdf")" || fail "no ocr log line for fixture-scan-multi.pdf"
 indexer_up 0
 
 echo
