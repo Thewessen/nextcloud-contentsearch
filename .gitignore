@@ -1,0 +1,3 @@
+dev/.env
+dev/fixtures/out/
+__pycache__/
