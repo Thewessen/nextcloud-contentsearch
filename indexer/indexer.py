@@ -3,6 +3,7 @@
 import html
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import time
@@ -17,6 +18,7 @@ OCR = os.environ.get("OCR", "0") == "1"
 # Folders whose scans are never OCR'd, relative to each user's files, e.g. "Resources/Sheetmusic"
 OCR_EXCLUDE = [p.strip().strip("/") for p in os.environ.get("OCR_EXCLUDE", "").split(",") if p.strip()]
 MAX_CHARS = 500_000  # tsvector is capped at 1 MB
+MAX_PX = 3500  # longest side of a page for OCR: A4 at 300 dpi, larger pages are scaled down
 
 DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
@@ -106,7 +108,7 @@ def ocr_excluded(path):
 
 
 def pages(path):
-    # Only for the log line, so a failure must not turn the file into an error
+    # "?" instead of an exception, so the log line never turns a file into an error
     try:
         return re.search(r"^Pages:\s+(\d+)", run(["pdfinfo", path]), re.M).group(1)
     except Exception:
@@ -114,13 +116,27 @@ def pages(path):
 
 
 def ocr(path):
+    # One page at a time with a size cap, so memory stays small whatever the scan resolution
+    n = int(pages(path))  # "?" raises, so the file becomes an error
+    text = []
     with tempfile.TemporaryDirectory() as tmp:
-        sidecar = os.path.join(tmp, "out.txt")
-        # Only the sidecar text is kept; no output PDF is written
-        run(["ocrmypdf", "-l", "nld+eng", "--skip-text", "--jobs", "1",
-             "--output-type", "none", "--sidecar", sidecar, path, "-"], timeout=1800)
-        with open(sidecar, encoding="utf-8", errors="replace") as f:
-            return f.read()
+        png = os.path.join(tmp, "page")
+        for p in range(1, n + 1):
+            run(["pdftoppm", "-f", str(p), "-l", str(p), "-scale-to", str(MAX_PX),
+                 "-gray", "-png", "-singlefile", path, png])
+            text.append(run(["tesseract", png + ".png", "-", "-l", "nld+eng"]))
+    return "\n".join(text)
+
+
+def clean_tmp():
+    # Leftovers from a run that was killed mid-OCR
+    tmp = tempfile.gettempdir()
+    for name in os.listdir(tmp):
+        path = os.path.join(tmp, name)
+        try:
+            shutil.rmtree(path) if os.path.isdir(path) else os.remove(path)
+        except OSError:
+            pass
 
 
 def extract(path, mime, allow_ocr=True):
@@ -148,6 +164,7 @@ def extract(path, mime, allow_ocr=True):
 
 
 def main():
+    clean_tmp()
     # Connection settings come from the PG* environment variables
     with psycopg.connect(autocommit=True) as db:
         while True:
