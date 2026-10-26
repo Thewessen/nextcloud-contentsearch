@@ -27,6 +27,8 @@ ZIP_PARTS = {
     "application/vnd.oasis.opendocument.spreadsheet": r"content\.xml",
     "application/vnd.oasis.opendocument.presentation": r"content\.xml",
 }
+# Password-protected Office files are OLE2 containers, not zip files
+OLE2 = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 MIMES = ["application/pdf", "application/msword", "text/plain", "text/markdown", *ZIP_PARTS]
 
 # Tags that end a block of text; all other tags are dropped without a separator,
@@ -88,6 +90,14 @@ def from_zip(path, pattern):
         return "\n".join(xml_text(z.read(n).decode("utf-8", "replace")) for n in names)
 
 
+def is_encrypted(path):
+    # OLE2 stream names are UTF-16LE; an encrypted docx/xlsx/pptx has an EncryptedPackage stream
+    with open(path, "rb") as f:
+        if f.read(8) != OLE2:
+            return False
+        return "EncryptedPackage".encode("utf-16-le") in f.read()
+
+
 def ocr(path):
     with tempfile.TemporaryDirectory() as tmp:
         sidecar = os.path.join(tmp, "out.txt")
@@ -113,6 +123,8 @@ def extract(path, mime):
     if mime == "application/msword":
         return run(["catdoc", "-d", "utf-8", path]), "ok"
     if mime in ZIP_PARTS:
+        if is_encrypted(path):
+            return None, "encrypted"
         return from_zip(path, ZIP_PARTS[mime]), "ok"
     with open(path, encoding="utf-8", errors="replace") as f:
         return f.read(MAX_CHARS), "ok"

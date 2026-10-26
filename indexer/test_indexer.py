@@ -181,6 +181,21 @@ class ExtractTest(unittest.TestCase):
         self.assertEqual(status, "ok")
         self.assertEqual(text.split(), ["pelikaan"])
 
+    def test_encrypted_office_file(self):
+        # Just the parts is_encrypted() looks at: the OLE2 header and the stream name
+        p = self.path("a.xlsx")
+        with open(p, "wb") as f:
+            f.write(indexer.OLE2 + b"\x00" * 1000 + "EncryptedPackage".encode("utf-16-le"))
+        for mime in (DOCX, PPTX, XLSX):
+            self.assertEqual(indexer.extract(p, mime), (None, "encrypted"), mime)
+
+    def test_ole2_without_encrypted_package_raises(self):
+        p = self.path("a.xlsx")
+        with open(p, "wb") as f:
+            f.write(indexer.OLE2 + b"\x00" * 1000)
+        with self.assertRaises(zipfile.BadZipFile):
+            indexer.extract(p, XLSX)
+
     def test_tool_error_includes_stderr(self):
         p = self.path("a.pdf")
         with open(p, "wb") as f:
