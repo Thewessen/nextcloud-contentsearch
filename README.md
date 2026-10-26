@@ -56,7 +56,7 @@ De stappen hieronder gaan uit van Nextcloud in Docker (container `nextcloud_app`
 
 ```bash
 APP_ID=contentsearch
-REPO=https://github.com/<github-user>/nextcloud-contentsearch.git
+REPO=https://github.com/sthewessen/nextcloud-contentsearch.git
 SRC=/opt/$APP_ID
 APPS=/var/lib/docker/volumes/nextcloud_nextcloud_html/_data/custom_apps
 NC_URL=https://<nextcloud-host>
