@@ -168,6 +168,26 @@ class ExtractTest(unittest.TestCase):
         with self.assertRaises(zipfile.BadZipFile):
             indexer.extract(p, DOCX)
 
+    def test_empty_file(self):
+        for mime in ("application/pdf", "application/msword", DOCX, "text/plain"):
+            p = self.path("leeg")
+            open(p, "wb").close()
+            self.assertEqual(indexer.extract(p, mime), (None, "empty"), mime)
+
+    def test_docx_saved_as_doc(self):
+        p = self.path("a.doc")
+        zip_file(p, {"word/document.xml": '<w:p><w:r><w:t>pelikaan</w:t></w:r></w:p>'})
+        text, status = indexer.extract(p, "application/msword")
+        self.assertEqual(status, "ok")
+        self.assertEqual(text.split(), ["pelikaan"])
+
+    def test_tool_error_includes_stderr(self):
+        p = self.path("a.pdf")
+        with open(p, "wb") as f:
+            f.write(b"not a pdf")
+        with self.assertRaisesRegex(RuntimeError, r"pdftotext exit status \d+: .+"):
+            indexer.extract(p, "application/pdf")
+
 
 @unittest.skipUnless(os.environ.get("FIXTURES"), "FIXTURES not set")
 class FixturesTest(unittest.TestCase):

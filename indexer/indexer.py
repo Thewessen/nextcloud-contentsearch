@@ -16,9 +16,11 @@ INTERVAL = int(os.environ.get("INTERVAL", "300"))
 OCR = os.environ.get("OCR", "0") == "1"
 MAX_CHARS = 500_000  # tsvector is capped at 1 MB
 
+DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
 # Office formats are zip files; text lives in these XML parts
 ZIP_PARTS = {
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": r"word/document\.xml",
+    DOCX: r"word/document\.xml",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation": r"ppt/slides/slide\d+\.xml",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": r"xl/sharedStrings\.xml",
     "application/vnd.oasis.opendocument.text": r"content\.xml",
@@ -63,9 +65,13 @@ SET storage = EXCLUDED.storage, etag = EXCLUDED.etag, status = EXCLUDED.status,
 """
 
 
-def run(cmd):
-    out = subprocess.run(cmd, capture_output=True, timeout=600, check=True).stdout
-    return out.decode("utf-8", "replace")
+def run(cmd, timeout=600):
+    p = subprocess.run(cmd, capture_output=True, timeout=timeout)
+    if p.returncode:
+        # The tool's own message says why, "exit status 1" does not
+        err = p.stderr.decode("utf-8", "replace").strip()
+        raise RuntimeError(f"{cmd[0]} exit status {p.returncode}: {err}")
+    return p.stdout.decode("utf-8", "replace")
 
 
 def xml_text(xml):
@@ -86,14 +92,19 @@ def ocr(path):
     with tempfile.TemporaryDirectory() as tmp:
         sidecar = os.path.join(tmp, "out.txt")
         # Only the sidecar text is kept; no output PDF is written
-        subprocess.run(["ocrmypdf", "-l", "nld+eng", "--skip-text", "--jobs", "1",
-                        "--output-type", "none", "--sidecar", sidecar, path, "-"],
-                       capture_output=True, timeout=1800, check=True)
+        run(["ocrmypdf", "-l", "nld+eng", "--skip-text", "--jobs", "1",
+             "--output-type", "none", "--sidecar", sidecar, path, "-"], timeout=1800)
         with open(sidecar, encoding="utf-8", errors="replace") as f:
             return f.read()
 
 
 def extract(path, mime):
+    if os.path.getsize(path) == 0:
+        return None, "empty"
+    if mime == "application/msword":
+        with open(path, "rb") as f:
+            if f.read(4) == b"PK\x03\x04":  # .docx saved as .doc
+                mime = DOCX
     if mime == "application/pdf":
         text = run(["pdftotext", "-enc", "UTF-8", path, "-"])
         if len(text.strip()) >= 100:
