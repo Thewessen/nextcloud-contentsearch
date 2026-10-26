@@ -197,6 +197,12 @@ docker exec -u www-data nextcloud_app php occ upgrade
 ```
 
 - Een wijziging in `app/` vraagt een hoger `<version>` in `app/appinfo/info.xml`. Anders draait `occ upgrade` niets, en kan de cache van Nextcloud de oude code blijven gebruiken.
+- Een nieuwe indexer probeert bestanden met de status `error` niet vanzelf opnieuw, want hun etag is niet veranderd. Verwijder die rijen om ze één keer opnieuw te laten indexeren in de volgende ronde:
+
+  ```bash
+  docker exec postgres-shared psql -U postgres -d nextcloud -c \
+    "delete from oc_contentsearch where status = 'error'"
+  ```
 - Zet vóór een major-upgrade van Nextcloud eerst `max-version` in `info.xml` op de nieuwe versie, en rol dat uit. Anders schakelt de upgrade de app uit.
 
 ## Verwijderen
@@ -217,6 +223,7 @@ docker exec postgres-shared psql -U postgres -d nextcloud -c \
 - Het zoekveld in de Files-app blijft alleen op bestandsnaam zoeken. Deze app werkt via de zoekbalk bovenin (Unified Search).
 - Er wordt alleen op hele woorden gezocht, dus niet op het begin van een woord: `factuur` vindt «facturen», maar `fact` vindt niets.
 - Een PDF met minder dan 100 tekens tekst geldt als scan (`needs_ocr`).
+- Lege bestanden (0 bytes) krijgen de status `empty`.
 - Bestanden die niet kunnen worden gelezen, krijgen de status `error`. Ze worden pas opnieuw geprobeerd als het bestand verandert.
 - Van xlsx worden alleen tekstcellen geïndexeerd (`sharedStrings.xml`), dus geen getallen. Van pptx worden de dia's geïndexeerd, maar niet de notities.
 - Nextcloud vervangt opslag-id's langer dan 64 tekens door een md5-hash. Bestanden van gebruikers met een gebruikersnaam van meer dan 58 tekens worden daardoor overgeslagen.
