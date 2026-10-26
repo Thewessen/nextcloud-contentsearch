@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end check against the dev environment (run ./up.sh and fixtures/generate.sh first).
 # Uploads the fixtures as alice, then checks indexing, search, permissions, sharing,
-# re-indexing, deletion, OCR, OCR_EXCLUDE and the log lines. Leaves the indexer running with OCR=0.
+# ranking, re-indexing, deletion, OCR, OCR_EXCLUDE and the log lines. Leaves the indexer running with OCR=0.
 set -euo pipefail
 cd "$(dirname "$0")"
 set -a; . ./.env; set +a
@@ -100,6 +100,21 @@ hits=$(search bob walrus)
 [ "$(echo "$hits" | cut -f1)" = fixture-odt.odt ] && ok "after share bob finds: $hits" || fail "after share bob sees '$hits'"
 hits=$(search bob flamingo)
 [ -z "$hits" ] && ok "bob still finds nothing for flamingo" || fail "bob sees '$hits'"
+
+echo "== ranking"
+# Each pair has equal term counts, so the old ts_rank tied and the lower fileid came first.
+# The file that should lose is uploaded first and gets the lower fileid.
+put() { dav "${@:3}" -T - "$NC/remote.php/dav/files/alice/$DIR/$1" >/dev/null <<<"$2"; }
+put rank-long.txt "Het woord lantaarn staat hier één keer. $(printf 'opvulling%s ' $(seq 2000))"
+put rank-short.txt "Het woord lantaarn staat hier één keer."
+put rank-old.txt "Het woord vuurtoren staat hier één keer." -H "X-OC-Mtime: 1420070400"
+put rank-new.txt "Het woord vuurtoren staat hier één keer."
+wait_for "ranking files indexed" '[ "$(rows | grep -c "^rank-.*|ok|")" = 4 ]'
+order() { search alice "$1" | cut -f1 | tr '\n' ' '; }
+[ "$(order lantaarn)" = "rank-short.txt rank-long.txt " ] && ok "lantaarn: $(order lantaarn)(shorter first)" ||
+	fail "lantaarn: $(order lantaarn)"
+[ "$(order vuurtoren)" = "rank-new.txt rank-old.txt " ] && ok "vuurtoren: $(order vuurtoren)(newer first)" ||
+	fail "vuurtoren: $(order vuurtoren)"
 
 echo "== change and delete"
 old_etag=$(rows | grep '^fixture-md.md|' | cut -d'|' -f3)
