@@ -57,6 +57,7 @@ services:
       BATCH: "200"
       INTERVAL: ${INTERVAL:-15}
       OCR: ${OCR:-0}
+      OCR_EXCLUDE: ${OCR_EXCLUDE:-}
 
 volumes:
   db:

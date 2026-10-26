@@ -128,6 +128,7 @@ services:
       BATCH: "200"
       INTERVAL: "300"
       OCR: "0"
+      OCR_EXCLUDE: ""
 
 networks:
   postgres-net:
@@ -138,7 +139,7 @@ cd /opt/stacks/$APP_ID && sudo docker compose up -d --build
 docker logs -f contentsearch_indexer
 ```
 
-Verwacht resultaat: een aantal keer `indexed 200`, en daarna `indexed <n>` met n < 200, waarna de indexer vijf minuten wacht. Voortgang volgen:
+Verwacht resultaat: per bestand een regel zoals `ok 12345 files/Documenten/brief.docx (0.1 s)` of `ocr 12345 files/Scans/brief.pdf (16 p, 212.0 s)`, na elke ronde `indexed 200`, en daarna `indexed <n>` met n < 200, waarna de indexer vijf minuten wacht. Voortgang volgen:
 
 ```bash
 docker exec postgres-shared psql -U postgres -d nextcloud -c \
@@ -184,6 +185,15 @@ sudo sed -i 's/OCR: "0"/OCR: "1"/' /opt/stacks/$APP_ID/compose.yaml
 cd /opt/stacks/$APP_ID && sudo docker compose up -d
 docker stats --no-stream contentsearch_indexer
 ```
+
+Mappen met scans waarvan OCR alleen onzin oplevert, zoals bladmuziek, kun je overslaan met `OCR_EXCLUDE`. Geef de mappen op vanaf de map `files` van elke gebruiker, gescheiden door komma's. Ze gelden voor alle gebruikers, en ook voor de submappen:
+
+```bash
+sudo sed -i 's|OCR_EXCLUDE: ""|OCR_EXCLUDE: "Resources/Sheetmusic"|' /opt/stacks/$APP_ID/compose.yaml
+cd /opt/stacks/$APP_ID && sudo docker compose up -d
+```
+
+Scans in die mappen krijgen de status `ocr_excluded`. Haal je later een map uit de lijst, verwijder dan de rijen met `ocr_excluded`, zodat ze opnieuw worden bekeken.
 
 Verwacht resultaat: het geheugen blijft onder de 512 MiB. Lokaal was de piek 286 MiB (`memory.peak` van de cgroup), bij een scan van 9 pagina's op 300 dpi. De status gaat van `needs_ocr` naar `ocr`. OCR draait met `--output-type none`: alleen de tekst wordt bewaard, en er wordt geen nieuwe PDF geschreven.
 
