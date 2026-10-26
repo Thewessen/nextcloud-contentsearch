@@ -6,7 +6,7 @@ CREATE TABLE oc_contentsearch (
     fileid     bigint PRIMARY KEY,
     storage    bigint NOT NULL,
     etag       text NOT NULL,
-    status     text NOT NULL,          -- ok | needs_ocr | ocr | empty | error
+    status     text NOT NULL,          -- ok | needs_ocr | ocr | empty | encrypted | error
     content    text,
     tsv        tsvector GENERATED ALWAYS AS (to_tsvector('dutch', coalesce(content, ''))) STORED,
     indexed_at timestamptz NOT NULL DEFAULT now()

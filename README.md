@@ -224,6 +224,7 @@ docker exec postgres-shared psql -U postgres -d nextcloud -c \
 - Er wordt alleen op hele woorden gezocht, dus niet op het begin van een woord: `factuur` vindt «facturen», maar `fact` vindt niets.
 - Een PDF met minder dan 100 tekens tekst geldt als scan (`needs_ocr`).
 - Lege bestanden (0 bytes) krijgen de status `empty`.
+- Docx, xlsx en pptx met een wachtwoord krijgen de status `encrypted`. Oude .doc- en .xls-bestanden met een wachtwoord gebruiken een andere versleuteling, en krijgen nog de status `error`.
 - Bestanden die niet kunnen worden gelezen, krijgen de status `error`. Ze worden pas opnieuw geprobeerd als het bestand verandert.
 - Van xlsx worden alleen tekstcellen geïndexeerd (`sharedStrings.xml`), dus geen getallen. Van pptx worden de dia's geïndexeerd, maar niet de notities.
 - Nextcloud vervangt opslag-id's langer dan 64 tekens door een md5-hash. Bestanden van gebruikers met een gebruikersnaam van meer dan 58 tekens worden daardoor overgeslagen.
