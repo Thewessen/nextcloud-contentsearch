@@ -102,6 +102,34 @@ class ExtractTest(unittest.TestCase):
         self.assertEqual(status, "ocr")
         self.assertIn("zeppelin", text)
 
+    def test_scan_ocr_excluded(self):
+        p = self.path("scan.pdf")
+        scan_pdf(p, ["zeppelin"])
+        for ocr in (False, True):
+            with mock.patch.object(indexer, "OCR", ocr):
+                self.assertEqual(indexer.extract(p, "application/pdf", allow_ocr=False),
+                                 (None, "ocr_excluded"))
+
+    def test_text_pdf_in_excluded_folder_is_indexed(self):
+        p = self.path("a.pdf")
+        text_pdf(p, ["Het woord is flamingo.", FILLER[:80], FILLER[80:]])
+        self.assertEqual(indexer.extract(p, "application/pdf", allow_ocr=False)[1], "ok")
+
+    def test_ocr_excluded_paths(self):
+        with mock.patch.object(indexer, "OCR_EXCLUDE", ["Resources/Sheetmusic"]):
+            self.assertTrue(indexer.ocr_excluded("files/Resources/Sheetmusic/a.pdf"))
+            self.assertTrue(indexer.ocr_excluded("files/Resources/Sheetmusic/Bach/a.pdf"))
+            self.assertFalse(indexer.ocr_excluded("files/Resources/Sheetmusic2/a.pdf"))
+            self.assertFalse(indexer.ocr_excluded("files/Scans/Resources/Sheetmusic/a.pdf"))
+        with mock.patch.object(indexer, "OCR_EXCLUDE", []):
+            self.assertFalse(indexer.ocr_excluded("files/Resources/Sheetmusic/a.pdf"))
+
+    def test_pages(self):
+        p = self.path("a.pdf")
+        text_pdf(p, ["een"])
+        self.assertEqual(indexer.pages(p), "1")
+        self.assertEqual(indexer.pages(self.path("missing.pdf")), "?")
+
     def test_docx_joins_runs_and_splits_paragraphs(self):
         p = self.path("a.docx")
         zip_file(p, {"word/document.xml": (
@@ -218,6 +246,11 @@ class FixturesTest(unittest.TestCase):
         "fixture-odp.odp": (ODP, "dromedaris"),
         "fixture-md.md": ("text/markdown", "kolibrie"),
         "fixture-txt.txt": ("text/plain", "narwal"),
+        "fixture-renamed.doc": ("application/msword", "kameleon"),
+    }
+    STATUSES = {
+        "fixture-empty.txt": ("text/plain", "empty"),
+        "fixture-encrypted.xlsx": (XLSX, "encrypted"),
     }
 
     def test_fixtures(self):
@@ -226,6 +259,12 @@ class FixturesTest(unittest.TestCase):
                 text, status = indexer.extract(os.path.join(os.environ["FIXTURES"], name), mime)
                 self.assertEqual(status, "ok")
                 self.assertIn(word, text)
+
+    def test_fixture_statuses(self):
+        for name, (mime, status) in self.STATUSES.items():
+            with self.subTest(name):
+                path = os.path.join(os.environ["FIXTURES"], name)
+                self.assertEqual(indexer.extract(path, mime), (None, status))
 
     def test_scan_fixture(self):
         path = os.path.join(os.environ["FIXTURES"], "fixture-scan.pdf")

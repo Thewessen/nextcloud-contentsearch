@@ -14,6 +14,8 @@ DATA = "/data"
 BATCH = int(os.environ.get("BATCH", "200"))
 INTERVAL = int(os.environ.get("INTERVAL", "300"))
 OCR = os.environ.get("OCR", "0") == "1"
+# Folders whose scans are never OCR'd, relative to each user's files, e.g. "Resources/Sheetmusic"
+OCR_EXCLUDE = [p.strip().strip("/") for p in os.environ.get("OCR_EXCLUDE", "").split(",") if p.strip()]
 MAX_CHARS = 500_000  # tsvector is capped at 1 MB
 
 DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -98,6 +100,19 @@ def is_encrypted(path):
         return "EncryptedPackage".encode("utf-16-le") in f.read()
 
 
+def ocr_excluded(path):
+    rel = path.removeprefix("files/")
+    return any(rel.startswith(p + "/") for p in OCR_EXCLUDE)
+
+
+def pages(path):
+    # Only for the log line, so a failure must not turn the file into an error
+    try:
+        return re.search(r"^Pages:\s+(\d+)", run(["pdfinfo", path]), re.M).group(1)
+    except Exception:
+        return "?"
+
+
 def ocr(path):
     with tempfile.TemporaryDirectory() as tmp:
         sidecar = os.path.join(tmp, "out.txt")
@@ -108,7 +123,7 @@ def ocr(path):
             return f.read()
 
 
-def extract(path, mime):
+def extract(path, mime, allow_ocr=True):
     if os.path.getsize(path) == 0:
         return None, "empty"
     if mime == "application/msword":
@@ -119,6 +134,8 @@ def extract(path, mime):
         text = run(["pdftotext", "-enc", "UTF-8", path, "-"])
         if len(text.strip()) >= 100:
             return text, "ok"
+        if not allow_ocr:
+            return None, "ocr_excluded"
         return (ocr(path), "ocr") if OCR else (None, "needs_ocr")
     if mime == "application/msword":
         return run(["catdoc", "-d", "utf-8", path]), "ok"
@@ -138,8 +155,13 @@ def main():
             rows = db.execute(PENDING, {"mimes": MIMES, "ocr": OCR, "batch": BATCH}).fetchall()
             for fileid, storage, storage_id, path, etag, mime in rows:
                 full = os.path.join(DATA, storage_id.split("::", 1)[1], path)
+                start = time.monotonic()
                 try:
-                    text, status = extract(full, mime)
+                    text, status = extract(full, mime, not ocr_excluded(path))
+                    info = f"{time.monotonic() - start:.1f} s"
+                    if status == "ocr":
+                        info = f"{pages(full)} p, {info}"
+                    print(f"{status} {fileid} {path} ({info})", flush=True)
                 except Exception as e:
                     print(f"error {fileid} {path}: {e}", flush=True)
                     text, status = None, "error"
